@@ -1,0 +1,96 @@
+import re
+from urllib.parse import urlparse
+
+class PhishingEmailAnalyzer:
+    def __init__(self, email_headers, email_body):
+        self.headers = email_headers
+        self.body = email_body.lower()
+        self.suspicious_keywords = [
+            "urgent", "verify", "account", "password", "login", "click here",
+            "update", "security alert", "confirm", "bank", "ssn", "social security"
+        ]
+        self.suspicious_domains = [
+            "bit.ly", "tinyurl.com", "goo.gl", "ow.ly", "t.co"
+        ]
+
+    def extract_urls(self):
+        # Simple regex to extract URLs from email body
+        url_pattern = re.compile(r'https?://[^\s]+')
+        urls = url_pattern.findall(self.body)
+        return urls
+
+    def check_suspicious_urls(self, urls):
+        suspicious_urls = []
+        for url in urls:
+            domain = urlparse(url).netloc.lower()
+            # Check if domain is suspicious or uses URL shorteners
+            if any(short_domain in domain for short_domain in self.suspicious_domains):
+                suspicious_urls.append(url)
+        return suspicious_urls
+
+    def check_suspicious_keywords(self):
+        found_keywords = []
+        for keyword in self.suspicious_keywords:
+            if keyword in self.body:
+                found_keywords.append(keyword)
+        return found_keywords
+
+    def check_sender_domain(self):
+        # Extract sender email from headers
+        sender = self.headers.get("From", "")
+        sender_domain = ""
+        match = re.search(r'@([a-zA-Z0-9.-]+)', sender)
+        if match:
+            sender_domain = match.group(1).lower()
+
+        # Check if sender domain matches "Reply-To" domain (basic check)
+        if sender_domain and "Reply-To" in self.headers:
+            reply_to = self.headers.get("Reply-To", "").lower()
+            if sender_domain not in reply_to:
+                return False, sender_domain, reply_to
+        return True, sender_domain, None
+
+    def analyze(self):
+        report = {}
+
+        urls = self.extract_urls()
+        report["urls_found"] = urls
+        report["suspicious_urls"] = self.check_suspicious_urls(urls)
+        report["suspicious_keywords"] = self.check_suspicious_keywords()
+        sender_check, sender_domain, reply_to = self.check_sender_domain()
+        report["sender_domain_check"] = sender_check
+        report["sender_domain"] = sender_domain
+        report["reply_to"] = reply_to
+
+        # Simple scoring
+        score = 0
+        score += len(report["suspicious_urls"]) * 3
+        score += len(report["suspicious_keywords"]) * 2
+        if not sender_check:
+            score += 5
+
+        report["phishing_score"] = score
+        report["is_phishing"] = score >= 5
+
+        return report
+
+
+if __name__ == "__main__":
+    sample_headers = {
+        "From": "support@secure-bank.com",
+        "Reply-To": "support@secure-bank.com"
+    }
+    sample_body = """
+    Dear user,
+
+    Your account has been compromised. Please click here https://bit.ly/secure-login to verify your password immediately.
+
+    Regards,
+    Secure Bank Support Team
+    """
+
+    analyzer = PhishingEmailAnalyzer(sample_headers, sample_body)
+    result = analyzer.analyze()
+    print("Phishing Analysis Report:")
+    for key, value in result.items():
+        print(f"{key}: {value}")
